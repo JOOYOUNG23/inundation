@@ -4,7 +4,7 @@ from inundation import find_inundation_low_point
 from plotting import plot_inundation
 
 # 파일 경로 및 시간 설정
-shp_file_path = 'C:/Users/정주영/Desktop/2024-2/종합설계/코드/flooding_test1/DEM_GRID/DEM_GRID.shp'
+shp_file_path = 'C:/Users/정주영/Desktop/2024-2/종합설계/코드/flooding_test1/DEM_GRID_소수점/DEM_GRID.shp'
 flooding_file_path = 'C:/Users/정주영/Desktop/2024-2/종합설계/코드/flooding_test1/Junction_Flooding_1.xlsx'
 selected_time = '2011-07-27 07:10:00'
 
