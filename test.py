@@ -86,10 +86,66 @@ for _, row in flooding_data.iterrows():
         low_point_x, low_point_y = find_inundation_low_point(x, y, grid_array)
         inundation_points.append((junction_id, low_point_x, low_point_y))
 
-# 침수 최저점 출력
-print("Inundation low points for each flooding cell:")
-for junction_id, lx, ly in inundation_points:
-    print(f"Junction ID: {junction_id}, Inundation Low Point: ({lx}, {ly})")
+# 초기 침수 범위 설정
+initial_inundation_cells = set()
+for _, lx, ly in inundation_points:
+    initial_inundation_cells.add((lx, ly))
+
+# 최대 수심을 탐색하기 위한 함수
+def find_max_depth_neighbors(x, y, grid_array):
+    neighbors = [(x + dx, y + dy) 
+                 for dx in [-1, 0, 1] for dy in [-1, 0, 1] 
+                 if (dx != 0 or dy != 0)]
+    neighbor_heights = []
+    
+    for nx, ny in neighbors:
+        if 0 <= nx < 64 and 0 <= ny < 64 and (nx, ny) not in initial_inundation_cells:
+            neighbor_heights.append(grid_array[ny, nx]['elevation'])
+    
+    if neighbor_heights:
+        second_lowest_elevation = np.partition(neighbor_heights, 1)[1]  # 두 번째로 낮은 고도
+        return second_lowest_elevation
+    return None
+
+# 초기 수심 계산
+cell_area = 244.1406  # 각 셀의 면적
+total_flooding = sum(row['flooding_value'] for _, row in flooding_data.iterrows() if pd.notna(row['flooding_value']))
+lowest_elevation = min(grid_array[ly, lx]['elevation'] for _, lx, ly in inundation_points)
+H = (total_flooding / cell_area) + lowest_elevation  # 수심 H
+
+# 침수 범위 정하기
+flooded_cells = set(initial_inundation_cells)  # 초기 침수 범위로 시작
+
+while True:
+    new_flooded_cells = set(flooded_cells)  # 현재 flooded_cells 복사본을 생성
+    max_depths = []
+
+    for x, y in flooded_cells:
+        second_lowest_elevation = find_max_depth_neighbors(x, y, grid_array)
+        if second_lowest_elevation is not None:
+            max_depth = second_lowest_elevation - grid_array[y, x]['elevation']
+            max_depths.append(max_depth)
+
+    if not max_depths:  # 더 이상 인접한 셀 없을 때 종료
+        break
+    
+    # 최대 수심이 존재하는지 체크
+    current_max_depth = min(max_depths) if max_depths else float('inf')
+    
+    if H >= current_max_depth:  # 수심 H가 최대 수심 이상
+        for x, y in flooded_cells:
+            neighbors = [(x + dx, y + dy) 
+                         for dx in [-1, 0, 1] for dy in [-1, 0, 1] 
+                         if (dx != 0 or dy != 0)]
+            for nx, ny in neighbors:
+                if 0 <= nx < 64 and 0 <= ny < 64:
+                    if (nx, ny) not in new_flooded_cells and grid_array[ny, nx]['elevation'] <= H:
+                        new_flooded_cells.add((nx, ny))
+    
+    if new_flooded_cells == flooded_cells:  # 더 이상 퍼지지 않으면 종료
+        break
+    
+    flooded_cells = new_flooded_cells  # 업데이트된 flooded_cells로 변경
 
 # 그래프 그리기
 plt.figure(figsize=(10, 10))
@@ -105,15 +161,15 @@ norm = plt.Normalize(vmin=-1, vmax=np.max(elevation_array[elevation_array != -1]
 # 고도를 배경으로 표시
 plt.imshow(elevation_array, cmap=cmap, norm=norm, origin='lower')
 
-# 침수 최저점을 파란 점으로 표시
-for junction_id, lx, ly in inundation_points:
-    plt.plot(lx, ly, 'bo', markersize=8)
+# 침수 범위를 파란색으로 표시
+for x, y in flooded_cells:
+    plt.plot(x, y, 'bo', markersize=5)
 
 # y축 반전
 plt.gca().invert_yaxis()
 
 # 그래프 제목 및 레이블 설정
-plt.title('Flood Inundation Low Points')
+plt.title('Flood Inundation Area')
 plt.xlabel('x')
 plt.ylabel('y')
 plt.colorbar(label='Elevation')
