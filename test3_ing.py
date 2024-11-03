@@ -108,7 +108,7 @@ for _, row in flooding_data.iterrows():
             initial_flooded_cells.extend(find_connected_same_elevation_cells(low_x, low_y, elevation, grid_array))
 
 # 초기 침수 범위의 고도 및 셀 영역
-lowest_elevation = min(grid_array[ly, lx]['elevation'] for lx, ly in initial_flooded_cells)
+lowest_elevation = min(grid_array[ly, lx]['elevation'] for lx, ly in initial_flooded_cells if grid_array[ly, lx]['elevation'] != 999)
 cell_area = 244.1406  # 각 셀의 면적
 
 # 초기 H 계산
@@ -121,12 +121,11 @@ def calculate_initial_H(flooded_cells, lowest_elevation, total_flooding, cell_ar
 
 # 총 침수량
 total_flooding = sum(row['flooding_value'] for _, row in flooding_data.iterrows() if pd.notna(row['flooding_value']))
-
-# 초기 H 계산
-H = calculate_initial_H(initial_flooded_cells, lowest_elevation, total_flooding, cell_area)
-
 # 침수 범위 초기화
 flooded_cells = set(initial_flooded_cells)
+
+# 초기 H 계산
+H = calculate_initial_H(flooded_cells, lowest_elevation, total_flooding, cell_area)
 
 while True:
     new_flooded_cells = set(flooded_cells)  # 현재 flooded_cells 복사본을 생성
@@ -141,44 +140,45 @@ while True:
         # 현재 셀의 고도
         current_cell_elevation = grid_array[y, x]['elevation']
         
-        # 인접한 셀 중 두 번째로 낮은 고도 찾기
-        adjacent_elevations = []
+        # 인접한 셀 중에서 현재 셀보다 높은 고도를 찾기
+        higher_adjacent_elevations = []
 
         for nx, ny in neighbors:
             if 0 <= nx < 64 and 0 <= ny < 64:
                 adjacent_elevation = grid_array[ny, nx]['elevation']
-                if adjacent_elevation > current_cell_elevation:  # 현재 셀의 고도보다 높은 셀
-                    adjacent_elevations.append(adjacent_elevation)
+                if adjacent_elevation > current_cell_elevation and adjacent_elevation != 999:  # 현재 셀의 고도보다 높은 셀 및 고도 999 제외
+                    higher_adjacent_elevations.append(adjacent_elevation)
 
-        if len(adjacent_elevations) >= 2:
-            second_lowest_elevation = sorted(adjacent_elevations)[1]  # 두 번째로 낮은 고도
-            max_depth = second_lowest_elevation - lowest_elevation  # 최대 수심
-            
+        # 두 번째로 낮은 고도 찾기
+        if len(higher_adjacent_elevations) >= 1:  # 현재 셀보다 높은 셀이 최소 하나 존재해야 함
+            second_lowest_elevation = min(higher_adjacent_elevations)  # 현재 셀보다 가장 낮은 고도
+            max_depth = second_lowest_elevation # 최대 수심  
+
             # H와 최대 수심 비교
             if H >= max_depth:
                 for nx, ny in neighbors:
                     if 0 <= nx < 64 and 0 <= ny < 64:
                         if (nx, ny) not in new_flooded_cells and grid_array[ny, nx]['elevation'] <= H:
-                            new_flooded_cells.add((nx, ny))
+                            # 같은 고도인 셀까지 추가
+                            connected_cells = find_connected_same_elevation_cells(nx, ny, grid_array[ny, nx]['elevation'], grid_array)
+                            new_flooded_cells.update(connected_cells)
+
+    flooded_cells = new_flooded_cells  # 업데이트된 flooded_cells로 변경
 
     # H 업데이트
-    new_H = (total_flooding / (cell_area * len(new_flooded_cells))) + lowest_elevation
+    new_H = (total_flooding / (cell_area * len(flooded_cells))) + lowest_elevation
 
-    if new_H < max_depth:  # H가 최대 수심보다 작으면 종료
-        break
-
-    if new_flooded_cells == flooded_cells:  # 더 이상 퍼지지 않으면 종료
-        break
-    
-    flooded_cells = new_flooded_cells  # 업데이트된 flooded_cells로 변경
     H = new_H  # H를 업데이트
+
+    if H < max_depth:  # H가 최대 수심보다 작으면 종료
+        break
 
 # 그래프 그리기
 plt.figure(figsize=(10, 10))
 
 # 고도 배열 생성
 elevation_array = grid_array['elevation'].copy()
-elevation_array[elevation_array == 999] = -1
+elevation_array[elevation_array == 999] = -1  # 고도 999를 -1로 변환
 
 # 색상 매핑 설정
 cmap = plt.get_cmap('terrain')
