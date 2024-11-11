@@ -125,6 +125,7 @@ total_flooding = 0
 # 각 flooding_value 열에 대해 침수값을 합산
 for _, row in flooding_data.iterrows():
     total_flooding += sum([row['flooding_value_1'], row['flooding_value_2'], row['flooding_value_3'], row['flooding_value_4']])
+total_flooding = total_flooding * 600
 
 # 침수 범위 초기화
 flooded_cells = set(initial_flooded_cells)
