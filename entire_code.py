@@ -2,6 +2,7 @@ import geopandas as gpd
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 from collections import deque
 
 # 데이터 불러오기
@@ -11,11 +12,10 @@ grid_data = gdf[['row_index', 'col_index', 'Elevation', 'Junction']]
 
 flooding_file_path = 'C:/Users/정주영/Desktop/2024-2/종합설계/코드/flooding_test1/Junction_Flooding_1.xlsx'
 flooding_data_raw = pd.read_excel(flooding_file_path, sheet_name='Sheet1')
-
-# 처음 4개의 flooding_value 데이터를 가져오기
-flooding_data = flooding_data_raw.head(4).T  # 첫 4개의 행을 선택하고 전치시킴
-flooding_data = flooding_data.drop('Time').reset_index()  # 'Time' 열 제거하고 인덱스 초기화
-flooding_data.columns = ['junction_id', 'flooding_value_1', 'flooding_value_2', 'flooding_value_3', 'flooding_value_4']  # 열 이름 설정
+selected_time = '2011-07-27 08:40:00'
+flooding_data = flooding_data_raw[flooding_data_raw['Time'] == selected_time].T
+flooding_data = flooding_data.drop('Time').reset_index()
+flooding_data.columns = ['junction_id', 'flooding_value']
 
 # Junction ID를 기준으로 고도 값 및 위치 정보와 병합
 grid_data = grid_data.merge(flooding_data, left_on='Junction', right_on='junction_id', how='left')
@@ -28,7 +28,7 @@ for _, row in grid_data.iterrows():
     x, y = int(row['col_index']), int(row['row_index'])
     elevation = row['Elevation']
     junction_id = row['Junction']
-    flooding_value = row[['flooding_value_1', 'flooding_value_2', 'flooding_value_3', 'flooding_value_4']].sum()  # flooding_value 합산
+    flooding_value = row['flooding_value'] if pd.notna(row['flooding_value']) else np.nan
     grid_array[y, x] = (elevation, junction_id, flooding_value)
 
 # 침수 최저점 찾기 함수
@@ -75,7 +75,7 @@ def find_connected_same_elevation_cells(x, y, elevation, grid_array):
         current_x, current_y = queue.popleft()
         
         # 인접한 8개의 셀 좌표
-        neighbors = [(current_x + dx, current_y + dy) 
+        neighbors = [(current_x + dx, current_y + dy)
                      for dx in [-1, 0, 1] for dy in [-1, 0, 1] 
                      if (dx != 0 or dy != 0)]
         
@@ -94,7 +94,7 @@ lowest_elevation = float('inf')
 
 for _, row in flooding_data.iterrows():
     junction_id = row['junction_id']
-    flooding_value = row[['flooding_value_1', 'flooding_value_2', 'flooding_value_3', 'flooding_value_4']].sum()
+    flooding_value = row['flooding_value']
     
     # Junction ID 위치 찾기
     flood_cell = grid_data[grid_data['junction_id'] == junction_id]
@@ -122,9 +122,7 @@ def calculate_initial_H(flooded_cells, lowest_elevation, total_flooding, cell_ar
 
 # 총 침수량
 total_flooding = 0
-# 각 flooding_value 열에 대해 침수값을 합산
-for _, row in flooding_data.iterrows():
-    total_flooding += sum([row['flooding_value_1'], row['flooding_value_2'], row['flooding_value_3'], row['flooding_value_4']])
+total_flooding = sum(row['flooding_value'] for _, row in flooding_data.iterrows() if pd.notna(row['flooding_value']))
 total_flooding = total_flooding * 600
 
 # 침수 범위 초기화
@@ -209,39 +207,85 @@ while True:
 
     # H 값을 이분법을 사용하여 최적화
     H_min = lowest_elevation  # H의 최소값은 최저 고도
-    H_max = 999  # H의 최대값은 999
+    H_max = 41.68772125  # H의 최대값은 41.68772125
     H = find_optimal_H(total_flooding, elevation_groups, cell_area, H_min, H_max)
 
-    print(f'침수심: {H - lowest_elevation}')
+    inundation_H = H - H_min
+
+    print(f'침수심: {inundation_H}')
 
     # 종료 조건: H가 max_depth보다 작으면 종료
     if H < max_depth:
         print(f'수심 : {H}, 최대 수심 : {max_depth}')
         break
 
+
 # 그래프 그리기
 plt.figure(figsize=(10, 10))
 
 # 고도 배열 생성
 elevation_array = grid_array['elevation'].copy()
-elevation_array[elevation_array == 999] = -1  # 고도 999를 -1로 변환
+elevation_array[elevation_array == 999] = np.nan  # 고도 999를 NaN으로 변환
 
-# 색상 매핑 설정
-cmap = plt.get_cmap('terrain')
-norm = plt.Normalize(vmin=-1, vmax=np.max(elevation_array[elevation_array != -1]))
+# 'terrain' 컬러맵 복사
+cmap = mpl.cm.get_cmap("terrain").copy()
+cmap.set_bad(color='black')  # NaN 값을 까만색으로 표시
+norm = plt.Normalize(vmin=-1, vmax=np.nanmax(elevation_array))  # NaN 제외한 최대값 계산
 
 # 고도를 배경으로 표시
 plt.imshow(elevation_array, cmap=cmap, norm=norm, origin='lower')
 
-# 침수 범위를 파란색으로 표시
+# flooded_cells의 각 셀에 대해 inundation_H에 따라 색상 결정
+min_inundation_H = float('inf')  # inundation_H의 최소값
+max_inundation_H = float('-inf')  # inundation_H의 최대값
+
+# inundation_H 값의 최소값과 최대값을 찾기
 for cx, cy in flooded_cells:
-    plt.plot(cx, cy, 'bo', markersize=5)
+    cell_elevation = grid_array[cy, cx]['elevation']
+    inundation_H = H - cell_elevation
+    min_inundation_H = min(min_inundation_H, inundation_H)
+    max_inundation_H = max(max_inundation_H, inundation_H)
+
+# 정규화된 inundation_H 값을 계산하고 색상 결정
+for cx, cy in flooded_cells:
+    cell_elevation = grid_array[cy, cx]['elevation']
+    inundation_H = H - cell_elevation
+
+    # inundation_H 값을 정규화 (0~1 범위로)
+    normalized_inundation_H = (inundation_H - min_inundation_H) / (max_inundation_H - min_inundation_H)
+
+    # 정규화된 inundation_H 값에 따라 색상 결정
+    if normalized_inundation_H <= 0.2:
+        color = 'cornflowerblue'  # 0.2 이하
+    elif 0.2 < normalized_inundation_H <= 0.3:
+        color = 'royalblue'  # 0.2 ~ 0.3
+    elif 0.3 < normalized_inundation_H <= 0.5:
+        color = 'mediumblue'  # 0.3 ~ 0.5
+    else:
+        color = 'darkblue'  # 0.5 이상
+
+    # 해당 셀에 색상 적용하여 점 그리기
+    plt.plot(cx, cy, 's', markersize=5, color=color)
 
 # y축 반전
 plt.gca().invert_yaxis()
 
 # 그래프 제목 및 레이블
-plt.title('Flooded Areas and Elevation Map')
-plt.xlabel('x')
-plt.ylabel('y')
+plt.title('Flooded Areas')
+
+# 색상 범례 추가
+from matplotlib.patches import Patch
+
+# 범례 항목을 위한 색상 지정
+legend_elements = [
+    Patch(color='cornflowerblue', label='0 ~ 0.2m'),
+    Patch(color='royalblue', label='0.2 ~ 0.3m'),
+    Patch(color='mediumblue', label='0.3 ~ 0.5m'),
+    Patch(color='darkblue', label='0.5m ~')
+]
+
+# 범례 표시
+plt.legend(handles=legend_elements, loc='upper right', fontsize=10)
+
+# 그래프 표시
 plt.show()
