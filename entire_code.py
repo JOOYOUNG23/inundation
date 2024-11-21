@@ -210,15 +210,9 @@ while True:
     H_max = 41.68772125  # H의 최대값은 41.68772125
     H = find_optimal_H(total_flooding, elevation_groups, cell_area, H_min, H_max)
 
-    inundation_H = H - H_min
-
-    print(f'침수심: {inundation_H}')
-
     # 종료 조건: H가 max_depth보다 작으면 종료
     if H < max_depth:
-        print(f'수심 : {H}, 최대 수심 : {max_depth}')
         break
-
 
 # 그래프 그리기
 plt.figure(figsize=(10, 10))
